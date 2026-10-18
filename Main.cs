@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using System.Text.RegularExpressions;
 using BepInEx;
 using BepInEx.Logging;
@@ -19,10 +21,9 @@ public class Main : BaseUnityPlugin
     public static bool applyBlacklist = false;
     public static bool oldApplyWhitelist = false;
     public static bool oldApplyBlacklist = false;
-    private List<string> whitelistStrings = new List<string>(100);
-    private List<string> blacklistStrings = new List<string>(100);
-    private bool syncVisibility = true;
-    void Start()
+    public static List<string> whitelistStrings = new List<string>(100);
+    public static List<string> blacklistStrings = new List<string>(100);
+    private bool syncVisibility = true;    void Start()
     {
         instance = this;
         Shell.RegisterCommand("hfftweaks", new Action<string>(ShellFunction), null);
@@ -31,61 +32,163 @@ public class Main : BaseUnityPlugin
         blacklistStrings.Add("");
         mainWindowRect = new Rect(1090f, 180f, 0f, 0f);
         whitelistWindowRect = new Rect(1090f, 400f, 0f, 0f);
-        Harmony harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
+        var harmony = new Harmony(MyPluginInfo.PLUGIN_GUID);
         harmony.PatchAll();
     }
     void ShellFunction(string arg)
     {
-        if (string.IsNullOrEmpty(arg))
+        if (string.IsNullOrWhiteSpace(arg))
         {
             Debug.Log("Invalid argument");
             return;
         }
-        string[] args = arg.Split(' ');
+        string[] args = arg.ToLower().Split(' ');
         if (args.Length == 0)
         {
             Debug.Log("Invalid argument");
             return;
         }
-        switch (args[0].ToLower())
+        switch (args[0])
         {
-            case "applywhitelist":
-            case "awl":
+            case "whitelist":
+            case "wl":
                 {
                     if (args.Length == 1)
                     {
                         SetBooleanCommand(ref applyWhitelist, nameof(applyWhitelist), "");
-                        if (applyWhitelist)
+                        if (applyBlacklist)
                         {
                             applyBlacklist = false;
                         }
                         return;
                     }
-                    SetBooleanCommand(ref applyWhitelist, nameof(applyWhitelist), args[1]);
-                    if (applyWhitelist)
+                    switch (args[1])
                     {
-                        applyBlacklist = false;
+                        case "apply":
+                            {
+                                if (args.Length == 2)
+                                {
+                                    SetBooleanCommand(ref applyWhitelist, nameof(applyWhitelist), "");
+                                    if (applyBlacklist)
+                                    {
+                                        applyBlacklist = false;
+                                    }
+                                    return;
+                                }
+                                SetBooleanCommand(ref applyWhitelist, nameof(applyWhitelist), args[2]);
+                                if (applyBlacklist)
+                                {
+                                    applyBlacklist = false;
+                                }
+                                return;
+                            }
+                        case "add":
+                            {
+                                if (args.Length == 2)
+                                {
+                                    Debug.Log("Invalid argument");
+                                }
+                                AddToList(ref whitelistStrings, nameof(whitelistStrings), args[2]);
+                                return;
+                            }
+                        case "remove":
+                        case "delete":
+                            {
+                                if (args.Length == 2)
+                                {
+                                    Debug.Log("Invalid argument");
+                                }
+                                if (int.TryParse(args[2], out int index))
+                                {
+                                    if (index < 1 || index > whitelistStrings.Count)
+                                    {
+                                        Debug.Log("Out of range");
+                                    }
+                                    whitelistStrings.RemoveAt(index - 1);
+                                }
+                                return;
+                            }
+                        case "clear":
+                            {
+                                whitelistStrings.Clear();
+                                return;
+                            }
+                        default:
+                            {
+                                Debug.Log("Invalid argument");
+                                return;
+                            }
                     }
-                    return;
                 }
-            case "applyblacklist":
-            case "abl":
+            case "blacklist":
+            case "bl":
                 {
                     if (args.Length == 1)
                     {
                         SetBooleanCommand(ref applyBlacklist, nameof(applyBlacklist), "");
-                        if (applyBlacklist)
+                        if (applyWhitelist)
                         {
                             applyWhitelist = false;
                         }
                         return;
                     }
-                    SetBooleanCommand(ref applyBlacklist, nameof(applyBlacklist), args[1]);
-                    if (applyBlacklist)
+                    switch (args[1])
                     {
-                        applyWhitelist = false;
+                        case "apply":
+                            {
+                                if (args.Length == 2)
+                                {
+                                    SetBooleanCommand(ref applyBlacklist, nameof(applyBlacklist), "");
+                                    if (applyWhitelist)
+                                    {
+                                        applyWhitelist = false;
+                                    }
+                                    return;
+                                }
+                                SetBooleanCommand(ref applyBlacklist, nameof(applyBlacklist), args[2]);
+                                if (applyWhitelist)
+                                {
+                                    applyWhitelist = false;
+                                }
+                                return;
+                            }
+                        case "add":
+                            {
+                                if (args.Length == 2)
+                                {
+                                    Debug.Log("Invalid argument");
+                                }
+                                AddToList(ref blacklistStrings, nameof(blacklistStrings), args[2]);
+                                return;
+                            }
+                        case "remove":
+                        case "delete":
+                            {
+                                if (args.Length == 2)
+                                {
+                                    Debug.Log("Invalid argument");
+                                }
+                                if (int.TryParse(args[2], out int index))
+                                {
+                                    if (index < 1 || index > blacklistStrings.Count)
+                                    {
+                                        Debug.Log("Out of range");
+                                    }
+                                    blacklistStrings.RemoveAt(index - 1);
+                                }
+                                return;
+                            }
+                        case "clear":
+                            {
+                                blacklistStrings.Clear();
+                                return;
+                            }
+                        default:
+                            {
+                                Debug.Log("Invalid argument");
+                                return;
+                            }
                     }
-                    return;
                 }
             default:
                 {
@@ -94,9 +197,23 @@ public class Main : BaseUnityPlugin
                 }
         }
     }
+
+    void AddToList(ref List<string> strings, string name, string value)
+    {
+        if (Regex.IsMatch(value, @"^[0-9]{0,17}$", RegexOptions.IgnoreCase))
+        {
+            strings.Add(value);
+        }
+        else
+        {
+            Debug.Log("Invalid argument");
+        }
+        Debug.Log($"Added \"{name}\" to \"{value}\"");
+        return;
+    }
     public static void SetBooleanCommand(ref bool boolean, string name, string arg)
     {
-        if (string.IsNullOrEmpty(arg))
+        if (string.IsNullOrWhiteSpace(arg))
         {
             boolean = !boolean;
         }
@@ -138,10 +255,24 @@ public class Main : BaseUnityPlugin
         if (applyWhitelist)
         {
             CreateStringsList(ref whitelistStrings, ref whitelistWindowRect, true);
+            for (int i = 0; i < whitelistStrings.Count; i++)
+            {
+                if (!Regex.IsMatch(whitelistStrings[i], @"^[0-9]{0,17}$"))
+                {
+                    whitelistStrings[i] = whitelistStrings[i].Substring(0, whitelistStrings[i].Length - 1);
+                }
+            }
         }
         if (applyBlacklist)
         {
             CreateStringsList(ref blacklistStrings, ref whitelistWindowRect, true);
+            for (int i = 0; i < blacklistStrings.Count; i++)
+            {
+                if (!Regex.IsMatch(blacklistStrings[i], @"^[0-9]{0,17}$"))
+                {
+                    blacklistStrings[i] = blacklistStrings[i].Substring(0, blacklistStrings[i].Length - 1);
+                }
+            }
         }
     }
     public static void CreateStringsList(ref List<string> strings, ref Rect rect, bool usingGUILayout = false)
@@ -151,7 +282,7 @@ public class Main : BaseUnityPlugin
             bool flag = true;
             for (int i = 0; i < strings.Count - 1; i++)
             {
-                if (string.IsNullOrEmpty(strings[i]))
+                if (string.IsNullOrWhiteSpace(strings[i]))
                 {
                     strings.RemoveAt(i);
                     if (rect != null && usingGUILayout)
@@ -161,14 +292,14 @@ public class Main : BaseUnityPlugin
                     flag = false;
                 }
             }
-            if (flag && !string.IsNullOrEmpty(strings[strings.Count - 1]))
+            if (flag && !string.IsNullOrWhiteSpace(strings[strings.Count - 1]))
             {
                 strings.Add("");
             }
         }
         else
         {
-            if (!string.IsNullOrEmpty(strings[0]))
+            if (!string.IsNullOrWhiteSpace(strings[0]))
             {
                 strings.Add("");
             }
@@ -273,52 +404,27 @@ public class Main : BaseUnityPlugin
         }
         GUI.DragWindow();
     }
+    public static class GenericLogPatch
+    {
+        public static void BeforeMethod(MethodBase __originalMethod)
+        {
+            // 実行されたクラス名とメソッド名を動的に取得してログ出力
+            UnityEngine.Debug.Log($"[CALL] {__originalMethod.DeclaringType.FullName}.{__originalMethod.Name}()");
+        }
+    }
 
-    [HarmonyPatch(typeof(NetGame), nameof(NetGame.AddServerPlayer))]
+    [HarmonyPatch(typeof(NetGame), nameof(NetGame.OnConnect))]
     static class JoinObservation
     {
-        private static int oldLobbyMaxPlayers;
-        private static bool flag = true;
         [HarmonyPrefix]
-        public static void Prefix(ref NetHost owner, ref string userId, ref bool isLocal)
+        public static bool Prefix(ref object connection)
         {
             Debug.Log("invoked prefix");
-            if (App.isServer)
+            if (!NetGame.isServer || (applyWhitelist && !whitelistStrings.Contains(connection.ToString())) || (applyBlacklist && blacklistStrings.Contains(connection.ToString())))
             {
-                flag = true;
-                oldLobbyMaxPlayers = Options.lobbyMaxPlayers;
-                if (applyWhitelist)
-                {
-                    if (!instance.whitelistStrings.Contains(owner.name) && !instance.whitelistStrings.Contains(userId) && !isLocal)
-                    {
-                        flag = false;
-                        Debug.Log($"Blocked {owner.name} ({userId})");
-                        Options.lobbyMaxPlayers = NetGame.instance.players.Count;
-                    }
-                }
-                if (applyBlacklist)
-                {
-                    if ((instance.blacklistStrings.Contains(owner.name) || instance.blacklistStrings.Contains(userId)) && !isLocal)
-                    {
-                        flag = false;
-                        Debug.Log($"Blocked {owner.name} ({userId})");
-                        Options.lobbyMaxPlayers = NetGame.instance.players.Count;
-                    }
-                }
-                if (flag)
-                {
-                    Debug.Log($"Player {owner.name} ({userId}) joined");
-                }
+                return false;
             }
-        }
-        [HarmonyPostfix]
-        public static void Postfix()
-        {
-            Debug.Log("invoked postfix");
-            if (App.isServer && !flag)
-            {
-                Options.lobbyMaxPlayers++;
-            }
+            return true;
         }
     }
 }
