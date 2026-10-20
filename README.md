@@ -85,3 +85,9 @@ Invoke-RestMethod -Uri "https://raw.githubusercontent.com/Msgames79/ms-hff-tweak
 ## バージョン履歴
 ### 0.1.0
 プレリリース
+
+### 1.0.0
+ホワイトリスト/ブラックリストの動作を確定させ正式リリース
+
+### 1.1.0
+無敵のボブ、チェックポイント固定、ゴール判定無効化を追加
