@@ -1,13 +1,16 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using BepInEx;
 using BepInEx.Logging;
 using HarmonyLib;
+using HumanAPI;
 using Multiplayer;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace ms_hff_tweaks;
 
@@ -21,9 +24,16 @@ public class Main : BaseUnityPlugin
     public static bool applyBlacklist = false;
     public static bool oldApplyWhitelist = false;
     public static bool oldApplyBlacklist = false;
+    public static bool makeHumanInvincible = false;
+    public static bool disableCheckpoints = false;
+    public static bool oldDisableCheckpoints = false;
+    public static bool disablePassTrigger = false;
+    public static int checkpointSetting = 0;
+    public static int checkpointCount;
     public static List<string> whitelistStrings = new List<string>(100);
     public static List<string> blacklistStrings = new List<string>(100);
-    private bool syncVisibility = true;    void Start()
+    private bool syncVisibility = true;
+    void Start()
     {
         instance = this;
         Shell.RegisterCommand("hfftweaks", new Action<string>(ShellFunction), null);
@@ -190,6 +200,36 @@ public class Main : BaseUnityPlugin
                             }
                     }
                 }
+            case "invinciblehumans":
+            case "ih":
+                {
+                    if (args.Length == 1)
+                    {
+                        SetBooleanCommand(ref makeHumanInvincible, nameof(makeHumanInvincible), "");
+                    }
+                    SetBooleanCommand(ref makeHumanInvincible, nameof(makeHumanInvincible), args[1]);
+                    return;
+                }
+            case "disablecheckpoints":
+            case "dcp":
+                {
+                    if (args.Length == 1)
+                    {
+                        SetBooleanCommand(ref disableCheckpoints, nameof(disableCheckpoints), "");
+                    }
+                    SetBooleanCommand(ref disableCheckpoints, nameof(disableCheckpoints), args[1]);
+                    return;
+                }
+            case "disablepasstrigger":
+            case "dpt":
+                {
+                    if (args.Length == 1)
+                    {
+                        SetBooleanCommand(ref disablePassTrigger, nameof(disablePassTrigger), "");
+                    }
+                    SetBooleanCommand(ref disablePassTrigger, nameof(disablePassTrigger), args[1]);
+                    return;
+                }
             default:
                 {
                     Debug.Log("Invalid argument");
@@ -233,6 +273,7 @@ public class Main : BaseUnityPlugin
     }
     private static GUILayoutOption[] expandOptions;
     private static GUIStyle noWrapToggleStyle;
+    private static GUIStyle noWrapListTextFieldStyle;
     private static GUIStyle noWrapTextFieldStyle;
     private static GUIStyle noWrapButtonStyle;
     public static bool guiOpened = false;
@@ -273,6 +314,18 @@ public class Main : BaseUnityPlugin
                     blacklistStrings[i] = blacklistStrings[i].Substring(0, blacklistStrings[i].Length - 1);
                 }
             }
+        }
+        if (disableCheckpoints != oldDisableCheckpoints)
+        {
+            if (disableCheckpoints)
+            {
+                if (checkpointCount == 0)
+                {
+                    PreOnSceneLoaded.OnSceneLoaded();
+                }
+                checkpointSetting = Game.instance.currentCheckpointNumber;
+            }
+            oldDisableCheckpoints = disableCheckpoints;
         }
     }
     public static void CreateStringsList(ref List<string> strings, ref Rect rect, bool usingGUILayout = false)
@@ -320,11 +373,16 @@ public class Main : BaseUnityPlugin
                 alignment = TextAnchor.MiddleCenter,
                 wordWrap = false
             };
-            noWrapTextFieldStyle = new GUIStyle(GUI.skin.textField)
+            noWrapListTextFieldStyle = new GUIStyle(GUI.skin.textField)
             {
                 alignment = TextAnchor.MiddleLeft,
                 wordWrap = false,
                 fixedWidth = 128
+            };
+            noWrapTextFieldStyle = new GUIStyle(GUI.skin.textField)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = false
             };
             noWrapButtonStyle = new GUIStyle(GUI.skin.button)
             {
@@ -355,6 +413,52 @@ public class Main : BaseUnityPlugin
                     {
                         applyBlacklist = GUILayout.Toggle(applyBlacklist, "Apply blacklist", noWrapToggleStyle, expandOptions);
                     }
+                    makeHumanInvincible = GUILayout.Toggle(makeHumanInvincible, "Invincible humans", noWrapToggleStyle, expandOptions);
+                    disableCheckpoints = GUILayout.Toggle(disableCheckpoints, "Disable new checkpoints", noWrapToggleStyle, expandOptions);
+                    if (disableCheckpoints)
+                    {
+                        using (var horizontalScope = new GUILayout.HorizontalScope())
+                        {
+                            if (GUILayout.Button("<<", noWrapButtonStyle))
+                            {
+                                checkpointSetting = 0;
+                                Game.instance.currentCheckpointNumber = Game.instance.currentCheckpointSubObjectives = 0;
+                                mainWindowRect.width = mainWindowRect.height = 0;
+                                Game.instance.RestartCheckpoint();
+                            }
+                            if (GUILayout.Button("-", noWrapButtonStyle))
+                            {
+                                if (checkpointSetting >= 2)
+                                {
+                                    checkpointSetting -= 1;
+                                    Game.instance.currentCheckpointNumber -= 1;
+                                    Game.instance.currentCheckpointSubObjectives = 0;
+                                    mainWindowRect.width = mainWindowRect.height = 0;
+                                    Game.instance.RestartCheckpoint();
+                                }
+                            }
+                            GUILayout.Label($"{checkpointSetting}/{checkpointCount}", noWrapTextFieldStyle, expandOptions);
+                            if (GUILayout.Button("+", noWrapButtonStyle))
+                            {
+                                if (checkpointSetting < checkpointCount)
+                                {
+                                    checkpointSetting += 1;
+                                    Game.instance.currentCheckpointNumber += 1;
+                                    Game.instance.currentCheckpointSubObjectives = 0;
+                                    mainWindowRect.width = mainWindowRect.height = 0;
+                                    Game.instance.RestartCheckpoint();
+                                }
+                            }
+                            if (GUILayout.Button(">>", noWrapButtonStyle))
+                            {
+                                checkpointSetting = Game.instance.currentCheckpointNumber = checkpointCount;
+                                Game.instance.currentCheckpointSubObjectives = 0;
+                                mainWindowRect.width = mainWindowRect.height = 0;
+                                Game.instance.RestartCheckpoint();
+                            }
+                        }
+                    }
+                    disablePassTrigger = GUILayout.Toggle(disablePassTrigger, "Disable passtriggers", noWrapToggleStyle, expandOptions);
                     break;
                 }
             case 1524676901:
@@ -369,11 +473,11 @@ public class Main : BaseUnityPlugin
                             {
                                 if (applyWhitelist)
                                 {
-                                    whitelistStrings[i] = GUILayout.TextArea(whitelistStrings[i], noWrapTextFieldStyle, expandOptions);
+                                    whitelistStrings[i] = GUILayout.TextArea(whitelistStrings[i], noWrapListTextFieldStyle, expandOptions);
                                 }
                                 else
                                 {
-                                    blacklistStrings[i] = GUILayout.TextArea(blacklistStrings[i], noWrapTextFieldStyle, expandOptions);
+                                    blacklistStrings[i] = GUILayout.TextArea(blacklistStrings[i], noWrapListTextFieldStyle, expandOptions);
                                 }
                             }
                         }
@@ -404,22 +508,13 @@ public class Main : BaseUnityPlugin
         }
         GUI.DragWindow();
     }
-    public static class GenericLogPatch
-    {
-        public static void BeforeMethod(MethodBase __originalMethod)
-        {
-            // 実行されたクラス名とメソッド名を動的に取得してログ出力
-            UnityEngine.Debug.Log($"[CALL] {__originalMethod.DeclaringType.FullName}.{__originalMethod.Name}()");
-        }
-    }
 
     [HarmonyPatch(typeof(NetGame), nameof(NetGame.OnConnect))]
-    static class JoinObservation
+    public static class PreOnConnect
     {
         [HarmonyPrefix]
-        public static bool Prefix(ref object connection)
+        public static bool OnConnect(ref object connection)
         {
-            Debug.Log("invoked prefix");
             if (!NetGame.isServer || (applyWhitelist && !whitelistStrings.Contains(connection.ToString())) || (applyBlacklist && blacklistStrings.Contains(connection.ToString())))
             {
                 return false;
@@ -427,4 +522,74 @@ public class Main : BaseUnityPlugin
             return true;
         }
     }
+
+    [HarmonyPatch(typeof(Game), nameof(Game.Fall))]
+    public static class PreFall
+    {
+        [HarmonyPrefix]
+        public static bool Fall(ref HumanBase humanBase, ref bool drown, ref bool fallAchievement)
+        {
+            Human human = humanBase as Human;
+            if (makeHumanInvincible)
+            {
+                if (drown)
+                {
+                    StatsAndAchievements.IncreaseDrownCount(human);
+                }
+                else if (fallAchievement)
+                {
+                    StatsAndAchievements.IncreaseFallCount(human);
+                }
+            }
+            return !makeHumanInvincible;
+        }
+    }
+
+    [HarmonyPatch(typeof(Game), nameof(Game.OnSceneLoaded))]
+    public static class PreOnSceneLoaded
+    {
+        [HarmonyPrefix]
+        public static void OnSceneLoaded()
+        {
+            checkpointSetting = checkpointCount = 0;
+            foreach (Checkpoint checkpoint in FindObjectsOfType<Checkpoint>())
+            {
+                if (checkpointCount < checkpoint.number)
+                {
+                    checkpointCount = checkpoint.number;
+                }
+            }
+        }
+    }
+
+    [HarmonyPatch(typeof(Game), nameof(Game.EnterCheckpoint))]
+    public static class PreEnterCheckpoint
+    {
+        [HarmonyPrefix]
+        public static bool EnterCheckpoint()
+        {
+            return !disableCheckpoints;
+        }
+    }
+
+    [HarmonyPatch(typeof(Game), nameof(Game.RestartLevel))]
+    public static class PreRestartLevel
+    {
+        [HarmonyPrefix]
+        public static bool RestartLevel()
+        {
+            return !disableCheckpoints;
+        }
+    }
+
+    [HarmonyPatch(typeof(Game), nameof(Game.EnterPassZone))]
+    public static class PreEnterPassZone
+    {
+        [HarmonyPrefix]
+        public static bool EnterPassZone()
+        {
+            return !disablePassTrigger;
+        }
+    }
+
 }
