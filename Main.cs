@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Data;
 using System.Linq;
+using System.Net.NetworkInformation;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using BepInEx;
@@ -28,10 +29,19 @@ public class Main : BaseUnityPlugin
     public static bool disableCheckpoints = false;
     public static bool oldDisableCheckpoints = false;
     public static bool disablePassTrigger = false;
+    public static bool editSlideAngle = false;
+    public static string slideAngleString = "45";
+    public static string oldSlideAngleString = "45";
+    public static float slideAngle = 45f;
     public static int checkpointSetting = 0;
     public static int checkpointCount;
-    public static List<string> whitelistStrings = new List<string>(100);
-    public static List<string> blacklistStrings = new List<string>(100);
+    public static int ssgMode = 0;
+    public static bool autoGetUp = false;
+    public static bool noIntervalJump = false;
+    public static bool powerfulPF = false;
+    public static List<string> ssgModeStrings = ["Default", "Always", "Disabled(Currently nothing)"];
+    public static List<string> whitelistStrings = new List<string>(10);
+    public static List<string> blacklistStrings = new List<string>(10);
     private bool syncVisibility = true;
     void Start()
     {
@@ -276,6 +286,7 @@ public class Main : BaseUnityPlugin
     private static GUIStyle noWrapListTextFieldStyle;
     private static GUIStyle noWrapTextFieldStyle;
     private static GUIStyle noWrapButtonStyle;
+    private static GUIStyle noWrapLabelStyle;
     public static bool guiOpened = false;
     void Update()
     {
@@ -319,15 +330,16 @@ public class Main : BaseUnityPlugin
         {
             if (disableCheckpoints)
             {
-                if (checkpointCount == 0)
+                if (App.state == AppSate.PlayLevel && checkpointCount == 0)
                 {
-                    PreOnSceneLoaded.OnSceneLoaded();
+                    PreOnSceneLoaded_Game.OnSceneLoaded();
                 }
                 checkpointSetting = Game.instance.currentCheckpointNumber;
             }
             oldDisableCheckpoints = disableCheckpoints;
         }
     }
+
     public static void CreateStringsList(ref List<string> strings, ref Rect rect, bool usingGUILayout = false)
     {
         if (strings.Count >= 2)
@@ -385,6 +397,11 @@ public class Main : BaseUnityPlugin
                 wordWrap = false
             };
             noWrapButtonStyle = new GUIStyle(GUI.skin.button)
+            {
+                alignment = TextAnchor.MiddleCenter,
+                wordWrap = false
+            };
+            noWrapLabelStyle = new GUIStyle(GUI.skin.label)
             {
                 alignment = TextAnchor.MiddleCenter,
                 wordWrap = false
@@ -459,12 +476,35 @@ public class Main : BaseUnityPlugin
                         }
                     }
                     disablePassTrigger = GUILayout.Toggle(disablePassTrigger, "Disable passtriggers", noWrapToggleStyle, expandOptions);
+                    editSlideAngle = GUILayout.Toggle(editSlideAngle, "Edit slide angle", noWrapToggleStyle, expandOptions);
+                    if (editSlideAngle)
+                    {
+                        slideAngleString = GUILayout.TextField(slideAngleString, noWrapTextFieldStyle, expandOptions);
+                        if (slideAngleString != oldSlideAngleString)
+                        {
+                            float.TryParse(slideAngleString, out slideAngle);
+                            slideAngle = Mathf.Clamp(slideAngle, -1f, float.MaxValue);
+                            oldSlideAngleString = slideAngleString;
+                        }
+                        else
+                        {
+                            GUILayout.Label($"{slideAngle}", noWrapLabelStyle, expandOptions);
+                        }
+                    }
+                    if (GUILayout.Button($"SSG mode: {ssgModeStrings[ssgMode]}"))
+                    {
+                        ssgMode = (ssgMode + 1) % ssgModeStrings.Count;
+                        mainWindowRect.width = mainWindowRect.height = 0;
+                    }
+                    autoGetUp = GUILayout.Toggle(autoGetUp, "Auto get-up", noWrapToggleStyle, expandOptions);
+                    noIntervalJump = GUILayout.Toggle(noIntervalJump, "Jump without interval", noWrapToggleStyle, expandOptions);
+                    powerfulPF = GUILayout.Toggle(powerfulPF, "Full force PF", noWrapToggleStyle, expandOptions);
                     break;
                 }
             case 1524676901:
                 {
                     syncVisibility = GUILayout.Toggle(syncVisibility, "Sync visibility", noWrapToggleStyle, expandOptions);
-                    int loops= applyWhitelist ? whitelistStrings.Count : blacklistStrings.Count;
+                    int loops = applyWhitelist ? whitelistStrings.Count : blacklistStrings.Count;
                     using (var horizontalScope = new GUILayout.HorizontalScope())
                     {
                         using (var verticalScope = new GUILayout.VerticalScope())
@@ -510,7 +550,7 @@ public class Main : BaseUnityPlugin
     }
 
     [HarmonyPatch(typeof(NetGame), nameof(NetGame.OnConnect))]
-    public static class PreOnConnect
+    public static class PreOnConnect_NetGame
     {
         [HarmonyPrefix]
         public static bool OnConnect(ref object connection)
@@ -524,7 +564,7 @@ public class Main : BaseUnityPlugin
     }
 
     [HarmonyPatch(typeof(Game), nameof(Game.Fall))]
-    public static class PreFall
+    public static class PreFall_Game
     {
         [HarmonyPrefix]
         public static bool Fall(ref HumanBase humanBase, ref bool drown, ref bool fallAchievement)
@@ -546,7 +586,7 @@ public class Main : BaseUnityPlugin
     }
 
     [HarmonyPatch(typeof(Game), nameof(Game.OnSceneLoaded))]
-    public static class PreOnSceneLoaded
+    public static class PreOnSceneLoaded_Game
     {
         [HarmonyPrefix]
         public static void OnSceneLoaded()
@@ -563,7 +603,7 @@ public class Main : BaseUnityPlugin
     }
 
     [HarmonyPatch(typeof(Game), nameof(Game.EnterCheckpoint))]
-    public static class PreEnterCheckpoint
+    public static class PreEnterCheckpoint_Game
     {
         [HarmonyPrefix]
         public static bool EnterCheckpoint()
@@ -573,7 +613,7 @@ public class Main : BaseUnityPlugin
     }
 
     [HarmonyPatch(typeof(Game), nameof(Game.RestartLevel))]
-    public static class PreRestartLevel
+    public static class PreRestartLevel_Game
     {
         [HarmonyPrefix]
         public static bool RestartLevel()
@@ -583,7 +623,7 @@ public class Main : BaseUnityPlugin
     }
 
     [HarmonyPatch(typeof(Game), nameof(Game.EnterPassZone))]
-    public static class PreEnterPassZone
+    public static class PreEnterPassZone_Game
     {
         [HarmonyPrefix]
         public static bool EnterPassZone()
@@ -592,4 +632,257 @@ public class Main : BaseUnityPlugin
         }
     }
 
+    [HarmonyPatch(typeof(Human), nameof(Human.ProcessFall))]
+    public static class PreProcessFall_Human
+    {
+        [HarmonyPrefix]
+        public static bool ProcessFall(ref Human __instance)
+        {
+            __instance.PushGroundAngle();
+            bool flag = false;
+            if (__instance.groundAnglesSum / __instance.groundAngles.Length > (editSlideAngle ? slideAngle : 45f))
+            {
+                flag = true;
+                __instance.slideTimer = 0f;
+                __instance.onGround = false;
+                __instance.state = HumanState.Slide;
+            }
+            else if (__instance.state == HumanState.Slide && __instance.groundAnglesSum / __instance.groundAngles.Length < 37f && __instance.ragdoll.partBall.rigidbody.velocity.y > -1f)
+            {
+                __instance.slideTimer += Time.fixedDeltaTime;
+                if (__instance.slideTimer < 0.003f)
+                {
+                    __instance.onGround = false;
+                }
+            }
+
+            if (!__instance.onGround && !flag)
+            {
+                if (__instance.fallTimer < 5f)
+                {
+                    __instance.fallTimer += Time.deltaTime;
+                }
+
+                if (__instance.state == HumanState.Climb)
+                {
+                    __instance.fallTimer = 0f;
+                }
+
+                if (__instance.fallTimer > 3f)
+                {
+                    __instance.state = HumanState.FreeFall;
+                }
+                else if (__instance.fallTimer > 1f)
+                {
+                    __instance.state = HumanState.Fall;
+                }
+            }
+            else
+            {
+                __instance.fallTimer = 0f;
+            }
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(Human), nameof(Human.FixedUpdate))]
+    public static class PreFixedUpdate_Human
+    {
+        [HarmonyPrefix]
+        public static bool FixedUpdate(ref Human __instance)
+        {
+            if (__instance.thisFrameHit + __instance.lastFrameHit > 30f)
+            {
+                __instance.MakeUnconscious();
+                __instance.ReleaseGrab(3f);
+            }
+
+            __instance.lastFrameHit = __instance.thisFrameHit;
+            __instance.thisFrameHit = 0f;
+            __instance.jumpDelay -= Time.fixedDeltaTime;
+            __instance.groundDelay -= Time.fixedDeltaTime;
+            if (!__instance.disableInput)
+            {
+                __instance.ProcessInput();
+            }
+
+            __instance.LimitFallSpeed();
+            Quaternion quaternion = Quaternion.Euler(__instance.controls.targetPitchAngle, __instance.controls.targetYawAngle, 0f);
+            __instance.targetDirection = quaternion * Vector3.forward;
+            __instance.targetLiftDirection = Quaternion.Euler(Mathf.Clamp(__instance.controls.targetPitchAngle, -70f, 80f), __instance.controls.targetYawAngle, 0f) * Vector3.forward;
+            if (NetGame.isClient || ReplayRecorder.isPlaying)
+            {
+                return false;
+            }
+
+            if (__instance.state == HumanState.Dead || __instance.state == HumanState.Unconscious || __instance.state == HumanState.Spawning)
+            {
+                __instance.controls.leftGrab = __instance.controls.rightGrab = false;
+                __instance.controls.shootingFirework = false;
+            }
+
+            __instance.groundAngle = 90f;
+            __instance.groundAngle = Mathf.Min(__instance.groundAngle, __instance.ragdoll.partBall.sensor.groundAngle);
+            __instance.groundAngle = Mathf.Min(__instance.groundAngle, __instance.ragdoll.partLeftFoot.sensor.groundAngle);
+            __instance.groundAngle = Mathf.Min(__instance.groundAngle, __instance.ragdoll.partRightFoot.sensor.groundAngle);
+            bool flag = __instance.hasGrabbed;
+            __instance.onGround = __instance.groundDelay <= 0f && __instance.groundManager.onGround;
+            __instance.hasGrabbed = __instance.grabManager.hasGrabbed;
+            __instance.ragdoll.partBall.sensor.groundAngle = __instance.ragdoll.partLeftFoot.sensor.groundAngle = __instance.ragdoll.partRightFoot.sensor.groundAngle = 90f;
+            if (__instance.hasGrabbed && __instance.transform.position.y < __instance.grabStartPosition.y)
+            {
+                __instance.grabStartPosition = __instance.transform.position;
+            }
+
+            if (__instance.hasGrabbed && __instance.transform.position.y - __instance.grabStartPosition.y > 0.5f)
+            {
+                __instance.isClimbing = true;
+            }
+            else
+            {
+                __instance.isClimbing = false;
+            }
+
+            if (flag != __instance.hasGrabbed && __instance.hasGrabbed)
+            {
+                __instance.grabStartPosition = __instance.transform.position;
+            }
+
+            if (__instance.state == HumanState.Spawning)
+            {
+                __instance.spawning = true;
+                if (__instance.onGround)
+                {
+                    __instance.MakeUnconscious();
+                }
+            }
+            else
+            {
+                __instance.spawning = false;
+            }
+
+            __instance.ProcessUnconscious();
+            if (__instance.state != HumanState.Dead && __instance.state != HumanState.Unconscious && __instance.state != HumanState.Spawning)
+            {
+                __instance.ProcessFall();
+                if (__instance.onGround)
+                {
+                    if (__instance.controls.jump && __instance.jumpDelay <= 0f)
+                    {
+                        __instance.state = HumanState.Jump;
+                        __instance.jump = true;
+                        if (!noIntervalJump)
+                        {
+                            __instance.jumpDelay = 0.5f;
+                        }
+                        __instance.groundDelay = 0.2f;
+                    }
+                    else if (__instance.controls.walkSpeed > 0f)
+                    {
+                        __instance.state = HumanState.Walk;
+                    }
+                    else
+                    {
+                        __instance.state = HumanState.Idle;
+                    }
+                }
+                else
+                {
+                    switch (ssgMode)
+                    {
+                        case 1:
+                            {
+                                __instance.state = HumanState.Climb;
+                                break;
+                            }
+                        default:
+                            {
+                                if (__instance.ragdoll.partLeftHand.sensor.grabObject != null || __instance.ragdoll.partRightHand.sensor.grabObject != null)
+                                {
+                                    __instance.state = HumanState.Climb;
+                                }
+                                break;
+                            }
+                    }
+                }
+            }
+
+            if (__instance.skipLimiting)
+            {
+                __instance.skipLimiting = false;
+                return false;
+            }
+
+            for (int i = 0; i < __instance.rigidbodies.Length; i++)
+            {
+                Vector3 vector = __instance.velocities[i];
+                Vector3 vector2 = __instance.rigidbodies[i].velocity;
+                Vector3 vector3 = vector2 - vector;
+                if (Vector3.Dot(vector, vector3) < 0f)
+                {
+                    Vector3 normalized = vector.normalized;
+                    float magnitude = vector.magnitude;
+                    float value = 0f - Vector3.Dot(normalized, vector3);
+                    float num = Mathf.Clamp(value, 0f, magnitude);
+                    vector3 += normalized * num;
+                }
+
+                float num2 = 1000f * Time.deltaTime;
+                if (vector3.magnitude > num2)
+                {
+                    Vector3 vector4 = Vector3.ClampMagnitude(vector3, num2);
+                    vector2 -= vector3 - vector4;
+                    __instance.rigidbodies[i].velocity = vector2;
+                }
+
+                __instance.velocities[i] = vector2;
+            }
+            if (autoGetUp && __instance.state == HumanState.Spawning)
+            {
+                __instance.MakeUnconscious();
+                CheatCodes.NotifyCheat("MHT AGU");
+            }
+            return false;
+        }
+    }
+
+    [HarmonyPatch(typeof(LegMuscles), nameof(LegMuscles.ApplyJumpImpulses))]
+    public static class PreApplyJumpImpulses_LegMuscles
+    {
+        [HarmonyPrefix]
+        public static bool ApplyJumpImpulses(ref LegMuscles __instance)
+        {
+            float num = 1f;
+            if (!powerfulPF)
+            {
+                for (int i = 0; i < __instance.human.groundManager.groundObjects.Count; i++)
+                {
+                    if (__instance.human.grabManager.IsGrabbed(__instance.human.groundManager.groundObjects[i]))
+                    {
+                        num = 0.75f;
+                    }
+                }
+            }
+
+            Vector3 vector = Vector3.up * __instance.upImpulse * num;
+            Vector3 vector2 = __instance.human.controls.walkDirection.normalized * __instance.forwardImpulse * num;
+            __instance.ragdoll.partHead.rigidbody.SafeAddForce(vector * 0.1f + vector2 * 0.1f, ForceMode.Impulse);
+            __instance.ragdoll.partChest.rigidbody.SafeAddForce(vector * 0.1f + vector2 * 0.1f, ForceMode.Impulse);
+            __instance.ragdoll.partWaist.rigidbody.SafeAddForce(vector * 0.1f + vector2 * 0.1f, ForceMode.Impulse);
+            __instance.ragdoll.partHips.rigidbody.SafeAddForce(vector * 0.1f + vector2 * 0.1f, ForceMode.Impulse);
+            __instance.ragdoll.partBall.rigidbody.SafeAddForce(vector * 0.1f + vector2 * 0.1f, ForceMode.Impulse);
+            __instance.ragdoll.partLeftThigh.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partRightThigh.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partLeftLeg.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partRightLeg.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partLeftFoot.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partRightFoot.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partLeftArm.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partRightArm.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partLeftForearm.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.ragdoll.partRightForearm.rigidbody.SafeAddForce(vector * 0.05f + vector2 * 0.05f, ForceMode.Impulse);
+            __instance.human.groundManager.DistributeForce(-vector / Time.fixedDeltaTime, __instance.ragdoll.partBall.rigidbody.position);
+            return false;
+        }
+    }
 }
